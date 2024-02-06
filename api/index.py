@@ -1,11 +1,11 @@
-from flask import Flask
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return 'Hello from Python! :D 🐍'
+    return jsonify(message='Hello from Python! :D 🐍')
 
 @app.route('/about')
 def about():
-    return 'About'
+    return jsonify(message='about')
