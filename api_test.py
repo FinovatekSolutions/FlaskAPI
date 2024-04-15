@@ -1,11 +1,12 @@
 from starlette.responses import JSONResponse
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Route
 import pandas as pd
 import aiofiles  # For async file operations
 import io  # For converting bytes to a format pandas can read
 import requests
-import json
+import uvicorn
 
 # Determine an optimal batch size
 BATCH_SIZE = 30  # Adjust based on experimentation
@@ -86,6 +87,7 @@ async def process_csv_files(request: Request):
 
     return JSONResponse({"data": processed_dataframes}) 
 
+# Function that uses a simple heuristic to choose input columns or to delete unwanted columns
 def column_heuristic(df):
     description_col = None
     amount_col = None
@@ -95,8 +97,16 @@ def column_heuristic(df):
             description_col = col
         elif (col.find("Amount") != -1) or ('amount' in col.lower()) :
             amount_col = col
-        
+        elif (col.find("Category") != -1) or (col.find("Type") != -1):
+            del df[col]
     return description_col, amount_col
 
-#!!!! TODO: Implement deletion of Category column in .csv if it exists before analysis
+
+app = Starlette(debug=True, routes=[
+    Route("/process-csv", endpoint=process_csv_files, methods=["POST"]),
+])
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)   
+
             
