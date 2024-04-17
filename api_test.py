@@ -91,13 +91,32 @@ async def process_csv_files(request: Request):
 def column_heuristic(df):
     description_col = None
     amount_col = None
+    
+    if '<Withdrawal Amount>' in df.columns:
+        # Replace NaN values with 0 for calculation
+        df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].fillna(0)
+        df['<Deposit Amount>'] = df['<Deposit Amount>'].fillna(0)
+
+        # Ensure correct signs: withdrawals should be negative, deposits should be positive
+        df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].apply(lambda x: -abs(x) if x != 0 else 0)
+        df['<Deposit Amount>'] = df['<Deposit Amount>'].apply(lambda x: abs(x) if x != 0 else 0)
+
+        # Create the 'Amount' column by summing the two columns
+        df['Amount'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
+        del df['<Withdrawal Amount>'], df['<Deposit Amount>']
+    if "<Additional Info>" in df.columns:
+        # Replace the value in Description with the one in Additional Info column if not null
+        df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
+        del df['<Additional Info>']
+        
         
     for col in df.columns:
-        if (col.find("Description") != -1) or ('description' in col.lower()) :
+        if (col.find("Description") != -1) or ('description' in col.lower()):
             description_col = col
         elif (col.find("Amount") != -1) or ('amount' in col.lower()) :
             amount_col = col
-        elif (col.find("Category") != -1) or (col.find("Type") != -1):
+        elif (col.find("Category") != -1) or (col.find("Type") != -1) or (col.find("Memo") != -1) or (
+            col.find("Post") != -1) or (col.find("Card") != -1) or (col.find("Check") != -1):
             del df[col]
     return description_col, amount_col
 
@@ -107,6 +126,6 @@ app = Starlette(debug=True, routes=[
 ])
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)   
+    uvicorn.run(app, host="0.0.0.0", port=8000)    
 
             
