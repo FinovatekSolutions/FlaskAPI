@@ -41,7 +41,7 @@ async def query(payload):
 
 
 
-async def categorize_transactions(df):
+async def categorize_transactions(df, bank_type):
     try:
         # Loading category mappings
         response = requests.get(json_url, headers=headers)
@@ -49,7 +49,7 @@ async def categorize_transactions(df):
 
         results = []
         batch_inputs = []
-        description_col, amount_col = column_heuristic(df)
+        description_col, amount_col = column_heuristic(df, bank_type)
 
         for batch_start in range(0, len(df), BATCH_SIZE):
             batch_end = batch_start + BATCH_SIZE
@@ -74,6 +74,7 @@ async def categorize_transactions(df):
         df['Category'] = results
         return df
     except Exception as e:
+    # TODO: Handle exceptions so that once an error pops up, the process shuts down 
         print(f"Error during transaction categorization: {e}")
         df['Category'] = ['Error Processing'] * len(df)  # Default error category
         return df
@@ -86,10 +87,14 @@ async def process_csv_files(request: Request):
     print(files)
     processed_dataframes = []
     for file in files:
+    # TODO: Handle error stemming from files with incorrect nature
         content = await file.read()
-        df = pd.read_csv(io.BytesIO(content), delimiter=',')
+        if file.filename == "Costco":
+            df = pd.read_csv(io.BytesIO(content), delimiter=',', skiprows=5)
+        else:
+            df = pd.read_csv(io.BytesIO(content), delimiter=',')
         try:
-            categorized_df = await categorize_transactions(df)
+            categorized_df = await categorize_transactions(df, file.filename)
             # Ensure the DataFrame is also cleaned before converting to dict
             categorized_df = replace_non_compliant_values(categorized_df)
             processed_dataframes.append(categorized_df.to_dict('records'))
@@ -100,11 +105,32 @@ async def process_csv_files(request: Request):
     return JSONResponse({"data": processed_dataframes})
 
 # Function that uses a simple heuristic to choose input columns or to delete unwanted columns
-def column_heuristic(df):
+def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
     
-    if '<Withdrawal Amount>' in df.columns:
+    if bank_type == "Chase":
+        del df["Post Date"], df["Category"], df["Type"], df["Memo"]
+    if bank_type == "Costco":
+        # Convert 'Debit' and 'Credit' to numeric, set errors='coerce' to handle non-numeric values by setting them to NaN
+        df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce')
+        df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce')
+        print(df.head())
+        # Replace NaN values with 0 for calculation
+        df['Debit'] = df['Debit'].fillna(0)
+        df['Credit'] = df['Credit'].fillna(0)
+
+        # Ensure correct signs: withdrawals should be negative, deposits should be positive
+        df['Debit'] = df['Debit'].apply(lambda x: -abs(x) if x != 0 else 0)
+        df['Credit'] = df['Credit'].apply(lambda x: abs(x) if x != 0 else 0)
+
+        # Create the 'Amount' column by summing the two columns
+        df['Amount'] = df['Debit'] + df['Credit'] 
+        del df['Debit'], df['Credit'], df["Category"] 
+    if bank_type == "Oriental Bank":
+        # Replace the value in Description with the one in Additional Info column if not null
+        df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
+        
         # Replace NaN values with 0 for calculation
         df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].fillna(0)
         df['<Deposit Amount>'] = df['<Deposit Amount>'].fillna(0)
@@ -114,22 +140,20 @@ def column_heuristic(df):
         df['<Deposit Amount>'] = df['<Deposit Amount>'].apply(lambda x: abs(x) if x != 0 else 0)
 
         # Create the 'Amount' column by summing the two columns
-        df['Amount'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
-        del df['<Withdrawal Amount>'], df['<Deposit Amount>']
-    if "<Additional Info>" in df.columns:
-        # Replace the value in Description with the one in Additional Info column if not null
-        df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
-        del df['<Additional Info>']
+        df['<Amount>'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
+        del df['<Withdrawal Amount>'], df['<Deposit Amount>'], df["<CheckNum>"], df['<Additional Info>']
         
-        
+    if bank_type == "Penfed":
+        del df["Card Number Last 4"], df["Posted Date"], df["Transaction Type"]
+    if bank_type == "Visa" or "Banco Popular":
+        pass
+            
     for col in df.columns:
         if (col.find("Description") != -1) or ('description' in col.lower()):
             description_col = col
         elif (col.find("Amount") != -1) or ('amount' in col.lower()) :
             amount_col = col
-        elif (col.find("Category") != -1) or (col.find("Type") != -1) or (col.find("Memo") != -1) or (
-            col.find("Post") != -1) or (col.find("Card") != -1) or (col.find("Check") != -1):
-            del df[col]
+        
     return description_col, amount_col
 
 def replace_non_compliant_values(df):
