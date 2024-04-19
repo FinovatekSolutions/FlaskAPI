@@ -1,12 +1,15 @@
 from starlette.responses import JSONResponse
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.routing import Route
+import numpy as np
 import pandas as pd
 import aiofiles  # For async file operations
 import io  # For converting bytes to a format pandas can read
 import requests
 import uvicorn
+import httpx
 
 # Determine an optimal batch size
 BATCH_SIZE = 30  # Adjust based on experimentation
@@ -19,73 +22,82 @@ json_url = 'https://huggingface.co/Finovatek/Categorization-Model/raw/main/label
 
 headers = {
     "Accept": "application/json",
-    "Authorization": "Bearer hf_XXXX",
+    "Authorization": "Bearer {Add Huggingface Authentication Token here}",
     "Content-Type": "application/json" 
 }
 
-def query(payload):
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response.json()
+async def query(payload):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(API_URL, headers=headers, json=payload)
+        if response.status_code == 200:
+            try:
+                return response.json()  # Ensure response is JSON and awaitable
+            except ValueError:  # Includes JSONDecodeError
+                print("Failed to decode JSON from response:", response.text)
+                return None  # Or handle as appropriate
+        else:
+            print("Received a non-200 response:", response.status_code)
+            return None  # Or handle as appropriate
+
 
 
 async def categorize_transactions(df):
-    # Loading category mappings
-    response = requests.get(json_url, headers=headers)
-    categories = response.json()
+    try:
+        # Loading category mappings
+        response = requests.get(json_url, headers=headers)
+        categories = response.json()
 
-    results = []
-    batch_inputs = []
-    description_col, amount_col = column_heuristic(df)
+        results = []
+        batch_inputs = []
+        description_col, amount_col = column_heuristic(df)
 
-    for batch_start in range(0, len(df), BATCH_SIZE):
-        batch_end = batch_start + BATCH_SIZE
-        batch_inputs = [
-            str(row[description_col]) + " (" + str(row[amount_col]) + ")" for _, row in df.iloc[batch_start:batch_end].iterrows()
-        ]
-        payload = {
-            "inputs": batch_inputs,
-            "parameters": {}
-        }
-        
-        # Send the batch request
-        response = await query(payload)
-        
-        # Assuming the response should be a list with one entry per input
-        if isinstance(response, list):
+        for batch_start in range(0, len(df), BATCH_SIZE):
+            batch_end = batch_start + BATCH_SIZE
+            batch_inputs = [
+                str(row[description_col]) + " (" + str(row[amount_col]) + ")" for _, row in df.iloc[batch_start:batch_end].iterrows()
+            ]
+            payload = {
+                "inputs": batch_inputs,
+                "parameters": {}
+            }
+            
+            # Send the batch request
+            response = await query(payload)
+            if response is None or not isinstance(response, list):
+                response = [{'label': 'Unknown_'}] * len(batch_inputs)  # Fallback response
+
             for resp in response:
-                # Process each response, adjusting according to the actual structure
-                # !!!!TODO: Categories are not going to be mapped so we have to change reverse mapping 
-                if 'label' in resp:
-                    number = resp['label'].split('_')[1]
-                    category = categories.get(number, 'Unknown Category')
-                else:
-                    category = 'Unknown Category'  # Fallback for unexpected response structure
+                number = resp.get('label', 'Unknown_').split('_')[1]
+                category = categories.get(number, 'Unknown Category')
                 results.append(category)
-        else:
-            # If response is not as expected, log and append placeholder values
-            print(f"Unexpected response format or error for batch starting at index {batch_start}")
-            for _ in range(len(batch_inputs)):
-                results.append('Unknown Category')
-
-    # Before assigning, check the lengths match
-    assert len(df) == len(results), f"Mismatch in DataFrame length and results: {len(df)} vs {len(results)}"
-    df['Category'] = results
-    return df
+    
+        df['Category'] = results
+        return df
+    except Exception as e:
+        print(f"Error during transaction categorization: {e}")
+        df['Category'] = ['Error Processing'] * len(df)  # Default error category
+        return df
 
 # Function that receives HTTP request with form data 
 async def process_csv_files(request: Request):
     form = await request.form()
-    csv_files = [file for _, file in form.items() if file.filename.endswith(".csv")]
-    
+    files = form.getlist('files[]') 
     processed_dataframes = []
-    for file in csv_files:
-        async with aiofiles.open(file.file, mode = 'rb') as af:
-            content = await af.read()
-            df = pd.read_csv(io.BytesIO(content), delimiter=',')
+    print(files)
+    processed_dataframes = []
+    for file in files:
+        content = await file.read()
+        df = pd.read_csv(io.BytesIO(content), delimiter=',')
+        try:
             categorized_df = await categorize_transactions(df)
+            # Ensure the DataFrame is also cleaned before converting to dict
+            categorized_df = replace_non_compliant_values(categorized_df)
             processed_dataframes.append(categorized_df.to_dict('records'))
+        except Exception as e:
+            print(f"Error processing file {file.filename}: {e}")
+            return JSONResponse({"error": f"Failed to process {file.filename}"}, status_code=500)
 
-    return JSONResponse({"data": processed_dataframes}) 
+    return JSONResponse({"data": processed_dataframes})
 
 # Function that uses a simple heuristic to choose input columns or to delete unwanted columns
 def column_heuristic(df):
@@ -120,12 +132,23 @@ def column_heuristic(df):
             del df[col]
     return description_col, amount_col
 
+def replace_non_compliant_values(df):
+    # Replace 'inf', '-inf' and 'nan' with a compliant value
+    df.replace([np.inf, -np.inf, np.nan], [None, None, None], inplace=True)
+    return df
+
 
 app = Starlette(debug=True, routes=[
     Route("/process-csv", endpoint=process_csv_files, methods=["POST"]),
 ])
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)    
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"]
+)
 
-            
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)   
