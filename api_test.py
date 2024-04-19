@@ -73,8 +73,7 @@ async def categorize_transactions(df, bank_type):
     
         df['Category'] = results
         return df
-    except Exception as e:
-    # TODO: Handle exceptions so that once an error pops up, the process shuts down 
+    except Exception as e: 
         print(f"Error during transaction categorization: {e}")
         df['Category'] = ['Error Processing'] * len(df)  # Default error category
         return df
@@ -87,7 +86,7 @@ async def process_csv_files(request: Request):
     print(files)
     processed_dataframes = []
     for file in files:
-    # TODO: Handle error stemming from files with incorrect nature
+        #TODO: Implement error handling for files that are not .csv files
         content = await file.read()
         if file.filename == "Costco":
             df = pd.read_csv(io.BytesIO(content), delimiter=',', skiprows=5)
@@ -110,43 +109,65 @@ def column_heuristic(df, bank_type):
     amount_col = None
     
     if bank_type == "Chase":
-        del df["Post Date"], df["Category"], df["Type"], df["Memo"]
+            try:
+                del df["Post Date"], df["Category"], df["Type"], df["Memo"]
+            except Exception as e:
+                print(f"Error finding the column {e} in the DataFrame")
+            return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
     if bank_type == "Costco":
-        # Convert 'Debit' and 'Credit' to numeric, set errors='coerce' to handle non-numeric values by setting them to NaN
-        df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce')
-        df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce')
-        print(df.head())
-        # Replace NaN values with 0 for calculation
-        df['Debit'] = df['Debit'].fillna(0)
-        df['Credit'] = df['Credit'].fillna(0)
+        try:
+            # Convert 'Debit' and 'Credit' to numeric, set errors='coerce' to handle non-numeric values by setting them to NaN
+            df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce')
+            df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce')
+            print(df.head())
+            # Replace NaN values with 0 for calculation
+            df['Debit'] = df['Debit'].fillna(0)
+            df['Credit'] = df['Credit'].fillna(0)
 
-        # Ensure correct signs: withdrawals should be negative, deposits should be positive
-        df['Debit'] = df['Debit'].apply(lambda x: -abs(x) if x != 0 else 0)
-        df['Credit'] = df['Credit'].apply(lambda x: abs(x) if x != 0 else 0)
+            # Ensure correct signs: withdrawals should be negative, deposits should be positive
+            df['Debit'] = df['Debit'].apply(lambda x: -abs(x) if x != 0 else 0)
+            df['Credit'] = df['Credit'].apply(lambda x: abs(x) if x != 0 else 0)
 
-        # Create the 'Amount' column by summing the two columns
-        df['Amount'] = df['Debit'] + df['Credit'] 
-        del df['Debit'], df['Credit'], df["Category"] 
+            # Create the 'Amount' column by summing the two columns
+            df['Amount'] = df['Debit'] + df['Credit'] 
+            del df['Debit'], df['Credit'], df["Category"] 
+        except Exception as e:
+            print(f"Error finding the column {e} in the DataFrame")
+            return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
     if bank_type == "Oriental Bank":
-        # Replace the value in Description with the one in Additional Info column if not null
-        df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
-        
-        # Replace NaN values with 0 for calculation
-        df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].fillna(0)
-        df['<Deposit Amount>'] = df['<Deposit Amount>'].fillna(0)
+        try:
+            # Replace the value in Description with the one in Additional Info column if not null
+            df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
+                
+            # Replace NaN values with 0 for calculation
+            df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].fillna(0)
+            df['<Deposit Amount>'] = df['<Deposit Amount>'].fillna(0)
 
-        # Ensure correct signs: withdrawals should be negative, deposits should be positive
-        df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].apply(lambda x: -abs(x) if x != 0 else 0)
-        df['<Deposit Amount>'] = df['<Deposit Amount>'].apply(lambda x: abs(x) if x != 0 else 0)
+            # Ensure correct signs: withdrawals should be negative, deposits should be positive
+            df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].apply(lambda x: -abs(x) if x != 0 else 0)
+            df['<Deposit Amount>'] = df['<Deposit Amount>'].apply(lambda x: abs(x) if x != 0 else 0)
 
-        # Create the 'Amount' column by summing the two columns
-        df['<Amount>'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
-        del df['<Withdrawal Amount>'], df['<Deposit Amount>'], df["<CheckNum>"], df['<Additional Info>']
-        
+            # Create the 'Amount' column by summing the two columns
+            df['<Amount>'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
+            del df['<Withdrawal Amount>'], df['<Deposit Amount>'], df["<CheckNum>"], df['<Additional Info>']
+        except Exception as e:
+            print(f"Error finding the column {e} in the DataFrame")
+            return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
     if bank_type == "Penfed":
-        del df["Card Number Last 4"], df["Posted Date"], df["Transaction Type"]
-    if bank_type == "Visa" or "Banco Popular":
-        pass
+        try:
+            del df["Card Number Last 4"], df["Posted Date"], df["Transaction Type"]
+        except Exception as e:
+            print(f"Error finding the column {e} in the DataFrame")
+            return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
+    if bank_type == "Visa" or bank_type == "Banco Popular":
+        try:
+            columns_to_check = ['Date', 'Description', 'Amount']
+            are_columns_present = all(column in df.columns for column in columns_to_check)
+            if not are_columns_present:
+                raise ValueError("The columns are not present in the DataFrame")
+        except Exception as e:
+                print(f"{e}")
+                return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500) 
             
     for col in df.columns:
         if (col.find("Description") != -1) or ('description' in col.lower()):
