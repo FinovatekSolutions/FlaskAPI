@@ -5,7 +5,6 @@ from starlette.requests import Request
 from starlette.routing import Route
 import numpy as np
 import pandas as pd
-import aiofiles  # For async file operations
 import io  # For converting bytes to a format pandas can read
 import requests
 import uvicorn
@@ -83,23 +82,31 @@ async def process_csv_files(request: Request):
     form = await request.form()
     files = form.getlist('files[]') 
     processed_dataframes = []
-    print(files)
-    processed_dataframes = []
+    
     for file in files:
-        #TODO: Implement error handling for files that are not .csv files
+        filename, bank_type = file.filename.split('_')[0], file.filename.split('_')[1]
+        print(f"Processing file: {filename}")
+        
+        # Check if the file has a .csv extension
+        if not filename.endswith('.csv'):
+            print(f"File {filename} is not a CSV file.")
+            return JSONResponse({"{filename} is not a CSV file"}, status_code=500)
+        
         content = await file.read()
-        if file.filename == "Costco":
-            df = pd.read_csv(io.BytesIO(content), delimiter=',', skiprows=5)
-        else:
-            df = pd.read_csv(io.BytesIO(content), delimiter=',')
         try:
-            categorized_df = await categorize_transactions(df, file.filename)
+            # print(bank_type)
+            if bank_type == "Costco":
+                df = pd.read_csv(io.BytesIO(content), delimiter=',', skiprows=5)
+            else:
+                df = pd.read_csv(io.BytesIO(content), delimiter=',')
+                
+            categorized_df = await categorize_transactions(df, bank_type)
             # Ensure the DataFrame is also cleaned before converting to dict
             categorized_df = replace_non_compliant_values(categorized_df)
             processed_dataframes.append(categorized_df.to_dict('records'))
         except Exception as e:
-            print(f"Error processing file {file.filename}: {e}")
-            return JSONResponse({"error": f"Failed to process {file.filename}"}, status_code=500)
+            print(f"Error processing file {filename}: {e}")
+            return JSONResponse({"error": f"Failed to process {filename}"}, status_code=500)
 
     return JSONResponse({"data": processed_dataframes})
 
@@ -109,17 +116,17 @@ def column_heuristic(df, bank_type):
     amount_col = None
     
     if bank_type == "Chase":
-            try:
-                del df["Post Date"], df["Category"], df["Type"], df["Memo"]
-            except Exception as e:
-                print(f"Error finding the column {e} in the DataFrame")
+        try:
+            del df["Post Date"], df["Category"], df["Type"], df["Memo"]
+        except Exception as e:
+            print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
     if bank_type == "Costco":
         try:
             # Convert 'Debit' and 'Credit' to numeric, set errors='coerce' to handle non-numeric values by setting them to NaN
             df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce')
             df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce')
-            print(df.head())
+            # print(df.head())
             # Replace NaN values with 0 for calculation
             df['Debit'] = df['Debit'].fillna(0)
             df['Credit'] = df['Credit'].fillna(0)
