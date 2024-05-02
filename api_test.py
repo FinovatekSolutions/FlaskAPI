@@ -21,7 +21,7 @@ json_url = 'https://huggingface.co/Finovatek/Categorization-Model/raw/main/label
 
 headers = {
     "Accept": "application/json",
-    "Authorization": "Bearer {Add Huggingface Authentication Token here}",
+    "Authorization": "Bearer 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",
     "Content-Type": "application/json" 
 }
 
@@ -107,7 +107,6 @@ async def process_csv_files(request: Request):
         except Exception as e:
             print(f"Error processing file {filename}: {e}")
             return JSONResponse({"error": f"Failed to process {filename}"}, status_code=500)
-
     return JSONResponse({"data": processed_dataframes})
 
 # Function that uses a simple heuristic to choose input columns or to delete unwanted columns
@@ -115,6 +114,8 @@ def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
     
+    df.rename(columns={col: col.strip() for col in df.columns}, inplace=True)
+
     if bank_type == "Chase":
         try:
             del df["Post Date"], df["Category"], df["Type"], df["Memo"]
