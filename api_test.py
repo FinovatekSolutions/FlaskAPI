@@ -68,7 +68,11 @@ async def categorize_transactions(df, bank_type):
 
             for resp in response:
                 number = resp.get('label', 'Unknown_').split('_')[1]
-                category = categories.get(number, 'Unknown Category')
+                
+                if resp.get("score") > 0.80:
+                    category = categories.get(number, 'Unknown Category')
+                else:
+                    category = ""
                 results.append(category)
     
         df['Category'] = results
@@ -115,7 +119,6 @@ def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
     
-    print(df.columns)
     df.rename(columns={col: col.strip(string.punctuation + string.whitespace) for col in df.columns}, inplace=True)
 
     if bank_type == "Chase":
