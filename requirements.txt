@@ -6,3 +6,4 @@ aiofiles
 requests
 httpx
 python-multipart
+python-dotenv
