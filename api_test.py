@@ -21,7 +21,7 @@ json_url = 'https://huggingface.co/Finovatek/Categorization-Model/raw/main/label
 
 headers = {
     "Accept": "application/json",
-    "Authorization": "Bearer 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",
+    "Authorization": "Bearer {Add authentication token to use}",
     "Content-Type": "application/json" 
 }
 
@@ -109,7 +109,7 @@ async def process_csv_files(request: Request):
             return JSONResponse({"error": f"Failed to process {filename}"}, status_code=500)
     return JSONResponse({"data": processed_dataframes})
 
-# Function that uses a simple heuristic to choose input columns or to delete unwanted columns
+# Function that uses heuristics to choose input columns and to delete unwanted columns
 def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
