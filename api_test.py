@@ -9,6 +9,7 @@ import io  # For converting bytes to a format pandas can read
 import requests
 import uvicorn
 import httpx
+import string
 
 # Determine an optimal batch size
 BATCH_SIZE = 30  # Adjust based on experimentation
@@ -114,7 +115,8 @@ def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
     
-    df.rename(columns={col: col.strip() for col in df.columns}, inplace=True)
+    print(df.columns)
+    df.rename(columns={col: col.strip(string.punctuation + string.whitespace) for col in df.columns}, inplace=True)
 
     if bank_type == "Chase":
         try:
