@@ -13,6 +13,8 @@ import string
 from dotenv import load_dotenv
 import os
 
+load_dotenv()
+
 # Determine an optimal batch size
 BATCH_SIZE = 30  # Adjust based on experimentation
 
@@ -21,16 +23,18 @@ api_url = os.getenv("API_URL")
 
 # URL where categories JSON object is stored
 json_url = os.getenv("JSON_URL")
-
 # Token
-token = os.getenv("TOKEN"),
+bearer_token = os.getenv("BEARER_TOKEN")
 
 headers = {
     "Accept": "application/json",
-    "Authorization": "Bearer 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",
-    "Content-Type": "application/json" 
+    "Authorization": f"Bearer {bearer_token}",
+    "Content-Type": "application/json"
 }
-
+headers2 = {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+}
 async def query(payload):
     async with httpx.AsyncClient() as client:
         response = await client.post(api_url, headers=headers, json=payload)
@@ -40,11 +44,11 @@ async def query(payload):
             except ValueError:  # Includes JSONDecodeError
                 print("Failed to decode JSON from response:", response.text)
                 return None  # Or handle as appropriate
+
+
         else:
             print("Received a non-200 response:", response.status_code)
             return None  # Or handle as appropriate
-
-
 
 async def categorize_transactions(df, bank_type):
     try:
@@ -59,13 +63,14 @@ async def categorize_transactions(df, bank_type):
         for batch_start in range(0, len(df), BATCH_SIZE):
             batch_end = batch_start + BATCH_SIZE
             batch_inputs = [
-                str(row[description_col]) + " (" + str(row[amount_col]) + ")" for _, row in df.iloc[batch_start:batch_end].iterrows()
+                str(row[description_col]) + " (" + str(row[amount_col]) + ")" for _, row in
+                df.iloc[batch_start:batch_end].iterrows()
             ]
             payload = {
                 "inputs": batch_inputs,
                 "parameters": {}
             }
-            
+
             # Send the batch request
             response = await query(payload)
             if response is None or not isinstance(response, list):
@@ -73,35 +78,36 @@ async def categorize_transactions(df, bank_type):
 
             for resp in response:
                 number = resp.get('label', 'Unknown_').split('_')[1]
-                
+
                 if resp.get("score") > 0.80:
                     category = categories.get(number, 'Unknown Category')
                 else:
-                    category = ""
+                    category = "No Category"
                 results.append(category)
-    
+
         df['Category'] = results
         return df
-    except Exception as e: 
+    except Exception as e:
         print(f"Error during transaction categorization: {e}")
         df['Category'] = ['Error Processing'] * len(df)  # Default error category
         return df
 
-# Function that receives HTTP request with form data 
+
+# Function that receives HTTP request with form data
 async def process_csv_files(request: Request):
     form = await request.form()
-    files = form.getlist('files[]') 
+    files = form.getlist('files[]')
     processed_dataframes = []
-    
+
     for file in files:
         filename, bank_type = file.filename.split('_')[0], file.filename.split('_')[1]
         print(f"Processing file: {filename}")
-        
+
         # Check if the file has a .csv extension
-        if not filename.endswith('.csv'):
-            print(f"File {filename} is not a CSV file.")
-            return JSONResponse({"{filename} is not a CSV file"}, status_code=500)
-        
+        # if not filename.endswith('.csv'):
+        #     print(f"File {filename} is not a CSV file.")
+        #     return JSONResponse({"{filename} is not a CSV file"}, status_code=500)
+
         content = await file.read()
         try:
             # print(bank_type)
@@ -109,21 +115,42 @@ async def process_csv_files(request: Request):
                 df = pd.read_csv(io.BytesIO(content), delimiter=',', skiprows=5)
             else:
                 df = pd.read_csv(io.BytesIO(content), delimiter=',')
-                
+
             categorized_df = await categorize_transactions(df, bank_type)
             # Ensure the DataFrame is also cleaned before converting to dict
             categorized_df = replace_non_compliant_values(categorized_df)
             processed_dataframes.append(categorized_df.to_dict('records'))
+            print("Cojio")
         except Exception as e:
             print(f"Error processing file {filename}: {e}")
             return JSONResponse({"error": f"Failed to process {filename}"}, status_code=500)
-    return JSONResponse({"data": processed_dataframes})
+
+    # Define the endpoint to which you want to send the JSON data
+    target_endpoint = "http://localhost:3000/api/classify"
+    reviewId = request.query_params.get("reviewId")
+    payload = {"data": processed_dataframes, "reviewId": reviewId}
+    print(payload)
+
+    try:
+        # Send the JSON data to the target endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.post(target_endpoint, headers=headers2, json=payload)
+            print(f"Response Status Code: {response.status_code}")
+            print(f"Response Content: {response.text}")
+            # Check if the request was successful
+            if response.status_code == 200:
+                return JSONResponse({"message": "JSON data sent successfully"})
+            else:
+                return JSONResponse({"error": "Failed to send JSON data"}, status_code=response.status_code)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 # Function that uses heuristics to choose input columns and to delete unwanted columns
 def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
-    
+
     df.rename(columns={col: col.strip(string.punctuation + string.whitespace) for col in df.columns}, inplace=True)
 
     if bank_type == "Chase":
@@ -147,8 +174,8 @@ def column_heuristic(df, bank_type):
             df['Credit'] = df['Credit'].apply(lambda x: abs(x) if x != 0 else 0)
 
             # Create the 'Amount' column by summing the two columns
-            df['Amount'] = df['Debit'] + df['Credit'] 
-            del df['Debit'], df['Credit'], df["Category"] 
+            df['Amount'] = df['Debit'] + df['Credit']
+            del df['Debit'], df['Credit'], df["Category"]
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
@@ -156,7 +183,7 @@ def column_heuristic(df, bank_type):
         try:
             # Replace the value in Description with the one in Additional Info column if not null
             df.loc[df['<Additional Info>'].notna(), '<Description>'] = df['<Additional Info>']
-                
+
             # Replace NaN values with 0 for calculation
             df['<Withdrawal Amount>'] = df['<Withdrawal Amount>'].fillna(0)
             df['<Deposit Amount>'] = df['<Deposit Amount>'].fillna(0)
@@ -184,16 +211,17 @@ def column_heuristic(df, bank_type):
             if not are_columns_present:
                 raise ValueError("The columns are not present in the DataFrame")
         except Exception as e:
-                print(f"{e}")
-                return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500) 
-            
+            print(f"{e}")
+            return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
+
     for col in df.columns:
         if (col.find("Description") != -1) or ('description' in col.lower()):
             description_col = col
-        elif (col.find("Amount") != -1) or ('amount' in col.lower()) :
+        elif (col.find("Amount") != -1) or ('amount' in col.lower()):
             amount_col = col
-        
+
     return description_col, amount_col
+
 
 def replace_non_compliant_values(df):
     # Replace 'inf', '-inf' and 'nan' with a compliant value
@@ -202,7 +230,7 @@ def replace_non_compliant_values(df):
 
 
 app = Starlette(debug=True, routes=[
-    Route("/process-csv", endpoint=process_csv_files, methods=["POST"]),
+    Route("/", endpoint=process_csv_files, methods=["POST"]),
 ])
 
 app.add_middleware(
@@ -214,4 +242,4 @@ app.add_middleware(
 )
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)   
+    uvicorn.run(app, host="0.0.0.0", port=8000)
