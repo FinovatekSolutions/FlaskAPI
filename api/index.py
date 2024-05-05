@@ -100,13 +100,19 @@ async def process_csv_files(request: Request):
     processed_dataframes = []
 
     for file in files:
-        filename, bank_type = file.filename.split('_')[0], file.filename.split('_')[1]
-        print(f"Processing file: {filename}")
+        bank_type, filename = file.filename.split('_')[0], file.filename.split('_')[1]
+        print(f"Processing file: {file}")
+        print("File", file)
+        print("Bank Type", bank_type)
+        print("File Name", filename)
+        print("File Type", file.content_type)
+        
+        acceptable_file_types = ['text/csv', 'application/vnd.ms-excel']
 
         # Check if the file has a .csv extension
-        # if not filename.endswith('.csv'):
-        #     print(f"File {filename} is not a CSV file.")
-        #     return JSONResponse({"{filename} is not a CSV file"}, status_code=500)
+        if file.content_type not in acceptable_file_types:
+            print(f"File {filename} is not a CSV file.")
+            return JSONResponse({"error": f"File {filename} is not a CSV file"}, status_code=500)
 
         content = await file.read()
         try:
@@ -156,6 +162,7 @@ def column_heuristic(df, bank_type):
     if bank_type == "Chase":
         try:
             del df["Post Date"], df["Category"], df["Type"], df["Memo"]
+            df['Amount'] = df['Amount'].replace(r'[^\d.-]', '', regex=True).astype(float)
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
@@ -176,6 +183,7 @@ def column_heuristic(df, bank_type):
             # Create the 'Amount' column by summing the two columns
             df['Amount'] = df['Debit'] + df['Credit']
             del df['Debit'], df['Credit'], df["Category"]
+            df['Amount'] = df['Amount'].replace(r'[^\d.-]', '', regex=True).astype(float)
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
@@ -195,12 +203,14 @@ def column_heuristic(df, bank_type):
             # Create the 'Amount' column by summing the two columns
             df['<Amount>'] = df['<Withdrawal Amount>'] + df['<Deposit Amount>']
             del df['<Withdrawal Amount>'], df['<Deposit Amount>'], df["<CheckNum>"], df['<Additional Info>']
+            df['Amount'] = df['Amount'].replace(r'[^\d.-]', '', regex=True).astype(float)
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
     if bank_type == "Penfed":
         try:
             del df["Card Number Last 4"], df["Posted Date"], df["Transaction Type"]
+            df['Amount'] = df['Amount'].replace(r'[^\d.-]', '', regex=True).astype(float)
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
@@ -210,6 +220,7 @@ def column_heuristic(df, bank_type):
             are_columns_present = all(column in df.columns for column in columns_to_check)
             if not are_columns_present:
                 raise ValueError("The columns are not present in the DataFrame")
+            df['Amount'] = df['Amount'].replace(r'[^\d.-]', '', regex=True).astype(float)
         except Exception as e:
             print(f"{e}")
             return JSONResponse({"error": f"The files you uploaded are not accepted"}, status_code=500)
