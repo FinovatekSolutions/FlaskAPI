@@ -16,7 +16,7 @@ This example uses the Web Server Gateway Interface (WSGI) with Flask to enable h
 
 ```bash
 npm i -g vercel
-vercel dev --listen 5000
+vercel dev --listen 8000
 ```
 
 Your Flask application is now available at `http://localhost:5000`.
