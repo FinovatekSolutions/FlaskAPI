@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug Vercel Functions",
+      "type": "Python",
+      "request": "launch",
+      "program": "${workspaceFolder}/vercel",
+      "args": ["--debug", "dev", "--listen", "8000"],
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "console": "integratedTerminal"
+    }
+  ]
+}
