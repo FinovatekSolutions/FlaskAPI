@@ -26,6 +26,8 @@ json_url = os.getenv("JSON_URL")
 # Token
 bearer_token = os.getenv("BEARER_TOKEN")
 
+dashboard_url = os.getenv("DASHBOARD_URL")
+
 headers = {
     "Accept": "application/json",
     "Authorization": f"Bearer {bearer_token}",
@@ -132,7 +134,7 @@ async def process_csv_files(request: Request):
             return JSONResponse({"error": f"Failed to process {filename}"}, status_code=500)
 
     # Define the endpoint to which you want to send the JSON data
-    target_endpoint = "http://localhost:3000/api/classify"
+    target_endpoint = dashboard_url
     reviewId = request.query_params.get("reviewId")
     payload = {"data": processed_dataframes, "reviewId": reviewId}
     print(payload)
