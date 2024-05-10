@@ -134,7 +134,7 @@ async def process_csv_files(request: Request):
     try:
         # Send the JSON data to the target endpoint
         async with httpx.AsyncClient() as client:
-            response = await client.post(target_endpoint, headers=headers2, json=payload)
+            response = await client.post(target_endpoint, headers=headers2, json=payload, timeout=None)
             print(f"Response Status Code: {response.status_code}")
             print(f"Response Content: {response.text}")
             # Check if the request was successful
