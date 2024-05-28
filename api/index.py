@@ -1,6 +1,7 @@
 from starlette.responses import JSONResponse
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.routing import Route
 import numpy as np
