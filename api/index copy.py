@@ -13,6 +13,7 @@ import httpx
 import string
 from dotenv import load_dotenv
 import os
+import ssl
 
 load_dotenv()
 
@@ -39,7 +40,7 @@ headers2 = {
     "Accept": "application/json"
 }
 async def query(payload):
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify = False) as client:   #Changed
         response = await client.post(api_url, headers=headers, json=payload)
         if response.status_code == 200:
             try:
@@ -56,7 +57,7 @@ async def query(payload):
 async def categorize_transactions(df, bank_type):
     try:
         # Loading category mappings
-        response = requests.get(json_url, headers=headers)
+        response = requests.get(json_url, headers=headers, verify = False) #Changed
         categories = response.json()
 
         results = []
@@ -142,7 +143,7 @@ async def process_csv_files(request: Request):
 
     try:
         # Send the JSON data to the target endpoint
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify = False) as client:
             response = await client.post(target_endpoint, headers=headers2, json=payload, timeout=None)
             print(f"Response Status Code: {response.status_code}")
             print(f"Response Content: {response.text}")
