@@ -4,10 +4,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import io
-import requests
 import string
 from dotenv import load_dotenv
 import os
+import httpx
+import asyncio
 
 load_dotenv()
 
@@ -32,21 +33,22 @@ headers2 = {
     "Accept": "application/json"
 }
 
-
 async def query(payload):
-    response = requests.post(api_url, headers=headers, json=payload)
-    if response.status_code == 200:
-        try:
-            return response.json()
-        except ValueError:
-            print("Failed to decode JSON from response:", response.text)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(api_url, headers=headers, json=payload)
+        if response.status_code == 200:
+            try:
+                return response.json()
+            except ValueError:
+                print("Failed to decode JSON from response:", response.text)
+                return None
+        else:
+            print("Received a non-200 response:", response.status_code)
             return None
-    else:
-        print("Received a non-200 response:", response.status_code)
-        return None
 
 @app.route("/", methods=["POST"])
-def process_csv_files():
+async def process_csv_files():
+    form = request.form
     files = request.files.getlist('files[]')
     processed_dataframes = []
 
@@ -70,7 +72,7 @@ def process_csv_files():
             else:
                 df = pd.read_csv(io.BytesIO(content), delimiter=',')
 
-            categorized_df = categorize_transactions(df, bank_type)
+            categorized_df = await categorize_transactions(df, bank_type)
             categorized_df = replace_non_compliant_values(categorized_df)
             processed_dataframes.append(categorized_df.to_dict('records'))
         except Exception as e:
@@ -83,20 +85,22 @@ def process_csv_files():
     print(payload)
 
     try:
-        response = requests.post(target_endpoint, headers=headers2, json=payload)
-        print(f"Response Status Code: {response.status_code}")
-        print(f"Response Content: {response.text}")
-        if response.status_code == 200:
-            return jsonify({"message": "JSON data sent successfully"})
-        else:
-            return jsonify({"error": "Failed to send JSON data"}), response.status_code
+        async with httpx.AsyncClient() as client:
+            response = await client.post(target_endpoint, headers=headers2, json=payload)
+            print(f"Response Status Code: {response.status_code}")
+            print(f"Response Content: {response.text}")
+            if response.status_code == 200:
+                return jsonify({"message": "JSON data sent successfully"})
+            else:
+                return jsonify({"error": "Failed to send JSON data"}), response.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def categorize_transactions(df, bank_type):
+async def categorize_transactions(df, bank_type):
     try:
-        response = requests.get(json_url, headers=headers)
-        categories = response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(json_url, headers=headers)
+            categories = response.json()
 
         results = []
         batch_inputs = []
@@ -113,7 +117,7 @@ def categorize_transactions(df, bank_type):
                 "parameters": {}
             }
 
-            response = query(payload)
+            response = await query(payload)
             if response is None or not isinstance(response, list):
                 response = [{'label': 'Unknown_'}] * len(batch_inputs)
 
@@ -133,7 +137,6 @@ def categorize_transactions(df, bank_type):
         df['Category'] = ['Error Processing'] * len(df)
         return df
 
-
 def column_heuristic(df, bank_type):
     description_col = None
     amount_col = None
@@ -147,7 +150,7 @@ def column_heuristic(df, bank_type):
         except Exception as e:
             print(f"Error finding the column {e} in the DataFrame")
             return jsonify({"error": f"The files you uploaded are not accepted"}), 500
-   
+
     if bank_type == "Costco":
         try:
             # Convert 'Debit' and 'Credit' to numeric, set errors='coerce' to handle non-numeric values by setting them to NaN
@@ -220,4 +223,13 @@ def replace_non_compliant_values(df):
     return df
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    import hypercorn.asyncio
+    import hypercorn.config
+
+    async def run():
+        config = hypercorn.config.Config()
+        config.bind = ["0.0.0.0:8000"]
+        await hypercorn.asyncio.serve(app, config)
+
+    # Run the event loop
+    asyncio.run(run())
