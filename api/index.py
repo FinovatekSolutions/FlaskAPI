@@ -1,3 +1,4 @@
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
@@ -13,7 +14,6 @@ import httpx
 import string
 from dotenv import load_dotenv
 import os
-import ssl
 
 load_dotenv()
 
@@ -96,7 +96,14 @@ async def categorize_transactions(df, bank_type):
         df['Category'] = ['Error Processing'] * len(df)  # Default error category
         return df
 
-
+class CORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+        return response
+        
 # Function that receives HTTP request with form data
 async def process_csv_files(request: Request):
     form = await request.form()
@@ -245,7 +252,7 @@ def replace_non_compliant_values(df):
 
 
 app = Starlette(debug=True, middleware=[
-    Middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    Middleware(CORSMiddleware)
 ], routes=[
     Route("/", endpoint=process_csv_files, methods=["POST"]),
 ])
