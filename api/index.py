@@ -56,7 +56,7 @@ async def query(payload):
 async def categorize_transactions(df, bank_type):
     try:
         # Loading category mappings
-        response = requests.get(json_url, headers=headers, verify = False) #Changed
+        response = requests.get(json_url, headers=headers)
         categories = response.json()
 
         results = []
@@ -142,8 +142,8 @@ async def process_csv_files(request: Request):
 
     try:
         # Send the JSON data to the target endpoint
-        async with httpx.AsyncClient(verify = False) as client:
-            response = await client.post(target_endpoint, headers=headers2, json=payload, timeout=None)
+        async with httpx.AsyncClient() as client:
+            response = await client.post(target_endpoint, json=payload, timeout=None)
             print(f"Response Status Code: {response.status_code}")
             print(f"Response Content: {response.text}")
             # Check if the request was successful
